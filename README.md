@@ -1,3 +1,7 @@
+[![DOI](https://zenodo.org/badge/956010527.svg)](https://doi.org/10.5281/zenodo.15168047)
+
+
+
 # Field Generation Code and Data
 
 This repository contains the code and data associated with the fits in the paper **Modelling the Formation of Electric and Magnetic Fields in Dust Devils**.
