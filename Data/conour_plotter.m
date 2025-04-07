@@ -29,7 +29,7 @@
 % writetable(ans,"contour_3ed_10cm.csv");
 
 %% vertical plane
-load('2ed5_10cm.mat')
+load('2ed5_10cmv.mat')
 
 x_unique = unique(x_all, 'sorted');
 y_unique = unique(y_all, 'sorted');
@@ -39,10 +39,15 @@ z_unique = unique(z_all, 'sorted');
 Bz = griddata(x_all,z_all,Bz_all,X,Z);
 Ez = griddata(x_all,z_all,Ez_all,X,Z);
 
-Bz(Bz>1e-9)=1e-9;
-Bz(Bz<-1e-9)=-1e-9;
-Ez(Ez>5e6)=5e6;
-Ez(Ez<-5e6)=-5e6;
+Bz_plim = prctile(Bz_all, 99.999);
+Bz_mlim = prctile(Bz_all, 0.001);
+Ez_plim = prctile(Ez_all, 99.999);
+Ez_mlim = prctile(Ez_all, 0.001);
+
+Bz(Bz>Bz_plim)=Bz_plim;
+Bz(Bz<Bz_mlim)=Bz_mlim;
+Ez(Ez>Ez_plim)=Ez_plim;
+Ez(Ez<Ez_mlim)=Ez_mlim;
 
 figure(1)
 tiledlayout(1,2)
@@ -104,10 +109,15 @@ z_unique = unique(z_all, 'sorted');
 Bzh = griddata(x_all,y_all,Bz_all,X,Y);
 Ezh = griddata(x_all,y_all,Ez_all,X,Y);
 
-Bzh(Bzh>1e-9)=1e-9;
-Bzh(Bzh<-1e-9)=-1e-9;
-Ezh(Ezh>5e6)=5e6;
-Ezh(Ezh<-5e6)=-5e6;
+Bzh_plim = prctile(Bz_all, 99.999);
+Bzh_mlim = prctile(Bz_all, 0.001);
+Ezh_plim = prctile(Ez_all, 99.999);
+Ezh_mlim = prctile(Ez_all, 0.001);
+
+Bzh(Bzh>Bzh_plim)=Bzh_plim;
+Bzh(Bzh<Bzh_mlim)=Bzh_mlim;
+Ezh(Ezh>Ezh_plim)=Ezh_plim;
+Ezh(Ezh<Ezh_mlim)=Ezh_mlim;
 
 figure(1)
 nexttile(2)
@@ -176,7 +186,7 @@ c.Label.Interpreter = 'latex';
 load("farrell_digitisation.mat");
 
 temp = sortrows(farrell_m);
-temp_fit = smooth(farrell_m(:,1), farrell_m(:,2), 0.01, 'lowess');
+temp2 = sortrows(farrell_e);
 transect = 0;
 
 % Find the closest z index
@@ -196,7 +206,10 @@ plot(x_unique, Bz_transect*1e9, '-x', 'LineWidth', 1.5);
 xlabel('x [m]');
 ylabel('$B_z$ [nT]');
 hold on
-plot(dd_vel * (farrell_m(:,1)-dd_centre),farrell_m(:,2),'.','MarkerSize',20)
+plot(dd_vel * (temp(:,1)-dd_centre),temp(:,2),'.-','MarkerSize',20)
+plot(5.7 * (temp(:,1)-dd_centre),temp(:,2),'s-','MarkerSize',8,'MarkerFaceColor',[0.9290 0.6940 0.1250]	)
+plot(1.58 * (temp(:,1)-dd_centre),temp(:,2),'^-','MarkerSize',5,'MarkerFaceColor',[0.4940 0.1840 0.5560])
+axis([-100,100,-inf,inf])
 
 nexttile(2)
 Ez_transect(Ez_transect>4300)=4300;
@@ -205,5 +218,9 @@ plot(x_unique, Ez_transect*1e-3, '-x', 'LineWidth', 1.5);
 xlabel('x [m]');
 ylabel('$E_z$ [kV/m]');
 hold on
-plot(dd_vel * (farrell_e(:,1)-dd_centre),farrell_e(:,2),'.','MarkerSize',20)
+plot(dd_vel * (temp2(:,1)-dd_centre),temp2(:,2),'.-','MarkerSize',20)
+plot(5.7 * (temp2(:,1)-dd_centre),temp2(:,2),'s-','MarkerSize',8,'MarkerFaceColor',[0.9290 0.6940 0.1250])
+plot(1.58 * (temp2(:,1)-dd_centre),temp2(:,2),'^-','MarkerSize',5,'MarkerFaceColor',[0.4940 0.1840 0.5560])
+axis([-100,100,-inf,inf])
 
+legend('Simulated Field','Farrell Field, v=3m/s','Farrell Field, v=35.7/s','Farrell Field, v=1.58m/s','location','none')
