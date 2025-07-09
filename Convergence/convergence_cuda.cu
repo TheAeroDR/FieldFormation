@@ -71,6 +71,14 @@ struct ParticleDataGPU {
     }
 };
 
+// Kahan summation device function
+__device__ void kahan_add(double& sum, double& compensation, double value) {
+    double y = value - compensation;
+    double t = sum + y;
+    compensation = (t - sum) - y;
+    sum = t;
+}
+
 // CUDA kernel for single point field computation
 __global__ void compute_single_point_field_kernel(
     const double* __restrict__ particle_x,
@@ -83,18 +91,18 @@ __global__ void compute_single_point_field_kernel(
     double point_x,
     double point_y,
     double point_z,
-    double* __restrict__ result,  // [Bx, By, Bz, Ex, Ey, Ez]
+    double* __restrict__ result,
     int num_particles,
     double center_x,
     double center_y,
     double v_x,
     double v_y)
 {
-    // Constants
-    const double mu_0 = 1.2566370621219e-6;
-    const double eps_0 = 8.854187812813e-12;
-    const double q_e = 1.60217663e-19;
-    const double pi = 3.14159265358979323846;
+    //Constants
+    const double mu_0 = 1.25663706212190e-6;
+    const double eps_0 = 8.8541878128130e-12;
+    const double q_e = 1.602176634e-19;
+    const double pi = 3.1415926535897932384626433832795;
     
     const double mu_0_qe_div_4pi = (mu_0 * q_e) / (4.0 * pi);
     const double qe_div_4pi_eps0 = q_e / (4.0 * pi * eps_0);
@@ -102,25 +110,23 @@ __global__ void compute_single_point_field_kernel(
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     int stride = blockDim.x * gridDim.x;
     
-    // Shared memory for reduction (use larger data type for better precision)
-    __shared__ double sdata[6][256]; // Bx, By, Bz, Ex, Ey, Ez
+    // Kahan summation variables for each thread
+    double sum_B[3] = {0.0, 0.0, 0.0};
+    double comp_B[3] = {0.0, 0.0, 0.0};
+    double sum_E[3] = {0.0, 0.0, 0.0};
+    double comp_E[3] = {0.0, 0.0, 0.0};
     
-    int tid = threadIdx.x;
-    
-    // Initialize shared memory
-    for (int i = 0; i < 6; ++i) {
-        sdata[i][tid] = 0.0;
-    }
-    
-    // Each thread processes multiple particles
+    // Process particles with Kahan summation
     for (int i = idx; i < num_particles; i += stride) {
         const double dx = point_x - particle_x[i];
         const double dy = point_y - particle_y[i];
         const double dz = point_z - particle_z[i];
         
         const double r_sq = dx*dx + dy*dy + dz*dz;
+        
+        
         const double r_mag = sqrt(r_sq);
-        const double r3_inv = 1.0 / fmax(r_sq * r_mag, 1e-12);
+        const double r3_inv = 1.0 / (r_sq * r_mag);
         
         // Magnetic field calculation
         const double r_x = particle_x[i] - center_x;
@@ -142,34 +148,49 @@ __global__ void compute_single_point_field_kernel(
         const double B_factor = mu_0_qe_div_4pi * particle_q[i] * r3_inv;
         const double E_factor = qe_div_4pi_eps0 * particle_q[i] * r3_inv;
         
-        sdata[0][tid] += B_factor * Bx;
-        sdata[1][tid] += B_factor * By;
-        sdata[2][tid] += B_factor * Bz;
-        sdata[3][tid] += E_factor * dx;
-        sdata[4][tid] += E_factor * dy;
-        sdata[5][tid] += E_factor * dz;
+        kahan_add(sum_B[0], comp_B[0], B_factor * Bx);
+        kahan_add(sum_B[1], comp_B[1], B_factor * By);
+        kahan_add(sum_B[2], comp_B[2], B_factor * Bz);
+        kahan_add(sum_E[0], comp_E[0], E_factor * dx);
+        kahan_add(sum_E[1], comp_E[1], E_factor * dy);
+        kahan_add(sum_E[2], comp_E[2], E_factor * dz);
+    }
+    
+    // Shared memory for reduction with compensation tracking
+    __shared__ double sdata[6][256];
+    __shared__ double scomp[6][256];
+    
+    int tid = threadIdx.x;
+    
+    // Store thread results
+    sdata[0][tid] = sum_B[0];
+    sdata[1][tid] = sum_B[1];
+    sdata[2][tid] = sum_B[2];
+    sdata[3][tid] = sum_E[0];
+    sdata[4][tid] = sum_E[1];
+    sdata[5][tid] = sum_E[2];
+    
+    // Initialize compensation
+    for (int i = 0; i < 6; ++i) {
+        scomp[i][tid] = 0.0;
     }
     
     __syncthreads();
     
-    // Reduction in shared memory
+    // Kahan reduction in shared memory
     for (int s = blockDim.x / 2; s > 0; s >>= 1) {
         if (tid < s) {
             for (int i = 0; i < 6; ++i) {
-                sdata[i][tid] += sdata[i][tid + s];
+                kahan_add(sdata[i][tid], scomp[i][tid], sdata[i][tid + s]);
             }
         }
         __syncthreads();
     }
     
-    // Write result for this block using higher precision accumulation
+    // Atomic add final block results
     if (tid == 0) {
         for (int i = 0; i < 6; ++i) {
-            // Use a more precise atomic add for very small numbers
-            double val = sdata[i][0];
-            if (val != 0.0) {  // Only add non-zero contributions
-                atomicAdd(&result[i], val);
-            }
+            atomicAdd(&result[i], sdata[i][0]);
         }
     }
 }
@@ -576,6 +597,35 @@ struct ConvergenceResult {
 
 };
 
+void writeTimeseriesFile(const ConvergenceResult& result) {
+    std::string filename = "convergence_" + std::to_string(result.particle_count) + "_particles_timeseries.csv";
+    
+    std::ofstream file(filename);
+    if (!file.is_open()) {
+        std::cerr << "Error: Could not open file " << filename << " for writing" << std::endl;
+        return;
+    }
+    
+    // Write header
+    file << "timestep,time,run,Bx,By,Bz,Ex,Ey,Ez" << std::endl;
+    
+    // Write data - one row per timestep per run
+    for (size_t t = 0; t < result.timesteps.size(); ++t) {
+        double time_seconds = result.timesteps[t] * 0.5; // dt = 0.5
+        
+        for (int run = 0; run < result.Bx_values[t].size(); ++run) {
+            file << std::scientific << std::setprecision(12);
+            file << result.timesteps[t] << "," << time_seconds << "," << (run + 1);
+            file << "," << result.Bx_values[t][run] << "," << result.By_values[t][run] << "," << result.Bz_values[t][run];
+            file << "," << result.Ex_values[t][run] << "," << result.Ey_values[t][run] << "," << result.Ez_values[t][run];
+            file << std::endl;
+        }
+    }
+    
+    file.close();
+    std::cout << "  Timeseries saved to: " << filename << std::endl;
+}
+
 int main() {
     try {
         // Check CUDA device
@@ -684,6 +734,8 @@ int main() {
             auto end_time = std::chrono::high_resolution_clock::now();
             auto duration = std::chrono::duration_cast<std::chrono::seconds>(end_time - start_time);
             
+            writeTimeseriesFile(result);
+
             results.push_back(result);
             
             std::cout << "  Completed in " << duration.count() << " seconds" << std::endl;
