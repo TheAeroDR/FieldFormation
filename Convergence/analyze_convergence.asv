@@ -144,37 +144,24 @@ for j = 1:length(particle_counts)
         boxy_ez(:,j) = Ez_matrix(:,9);
 end
 %%
-particles_10_form = {'$10^3$','$10^4$','$10^5$','$10^6$','$10^7$'};
 figure
 iosr.statistics.boxPlot(boxy_bx, 'scaleWidth', true, 'notch', true, 'showOutliers', false);
-xticklabels(particles_10_form)
-xlabel("N")
-ylabel(field_units{1})
+xticklabels(particle_counts)
 figure
 iosr.statistics.boxPlot(boxy_by, 'scaleWidth', true, 'notch', true, 'showOutliers', false);
-xticklabels(particles_10_form)
-xlabel("N")
-ylabel(field_units{2})
+xticklabels(particle_counts)
 figure
 iosr.statistics.boxPlot(boxy_bz, 'scaleWidth', true, 'notch', true, 'showOutliers', false);
-xticklabels(particles_10_form)
-xlabel("N")
-ylabel(field_units{3})
+xticklabels(particle_counts)
 figure
 iosr.statistics.boxPlot(boxy_ex, 'scaleWidth', true, 'notch', true, 'showOutliers', false);
-xticklabels(particles_10_form)
-xlabel("N")
-ylabel(field_units{4})
+xticklabels(particle_counts)
 figure
 iosr.statistics.boxPlot(boxy_ey, 'scaleWidth', true, 'notch', true, 'showOutliers', false);
-xticklabels(particles_10_form)
-xlabel("N")
-ylabel(field_units{5})
+xticklabels(particle_counts)
 figure
 iosr.statistics.boxPlot(boxy_ez, 'scaleWidth', true, 'notch', true, 'showOutliers', false);
-xticklabels(particles_10_form)
-xlabel("N")
-ylabel(field_units{6})
+xticklabels(particle_counts)
 
 
 %%
