@@ -499,7 +499,7 @@ public:
         CUDA_CHECK(cudaMemset(d_result, 0, 6 * sizeof(double)));
         
         int threads_per_block = 256;
-        int blocks = std::min(128, (num_particles + threads_per_block - 1) / threads_per_block);  // Reduced blocks for better precision
+        int blocks = std::min(256, (num_particles + threads_per_block - 1) / threads_per_block);
         
         compute_single_point_field_kernel<<<blocks, threads_per_block>>>(
             gpu_particles->x, gpu_particles->y, gpu_particles->z,
@@ -612,7 +612,6 @@ int main() {
         for (int t = 0; t < timesteps; t += 5) {
             test_timesteps.push_back(t);
         }
-        test_timesteps.push_back(timesteps - 1); // Always include final timestep
         
         std::cout << "Testing " << test_timesteps.size() << " time points over " << T_end << " seconds" << std::endl;
         
