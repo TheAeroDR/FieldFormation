@@ -79,6 +79,7 @@ __device__ void kahan_add(double& sum, double& compensation, double value) {
     sum = t;
 }
 
+
 // CUDA kernel for single point field computation
 __global__ void compute_single_point_field_kernel(
     const double* __restrict__ particle_x,
@@ -91,18 +92,18 @@ __global__ void compute_single_point_field_kernel(
     double point_x,
     double point_y,
     double point_z,
-    double* __restrict__ result,
+    double* __restrict__ block_results,  // Changed: per-block results
     int num_particles,
     double center_x,
     double center_y,
     double v_x,
     double v_y)
 {
-    //Constants
-    const double mu_0 = 1.25663706212190e-6;
-    const double eps_0 = 8.8541878128130e-12;
+    // Physical constants with high precision
+    const double mu_0 = 1.25663706212e-6;
+    const double eps_0 = 8.8541878128e-12;
     const double q_e = 1.602176634e-19;
-    const double pi = 3.1415926535897932384626433832795;
+    const double pi = 3.14159265358979323846;
     
     const double mu_0_qe_div_4pi = (mu_0 * q_e) / (4.0 * pi);
     const double qe_div_4pi_eps0 = q_e / (4.0 * pi * eps_0);
@@ -116,14 +117,13 @@ __global__ void compute_single_point_field_kernel(
     double sum_E[3] = {0.0, 0.0, 0.0};
     double comp_E[3] = {0.0, 0.0, 0.0};
     
-    // Process particles with Kahan summation
+    // Process particles assigned to this thread
     for (int i = idx; i < num_particles; i += stride) {
         const double dx = point_x - particle_x[i];
         const double dy = point_y - particle_y[i];
         const double dz = point_z - particle_z[i];
         
         const double r_sq = dx*dx + dy*dy + dz*dz;
-        
         
         const double r_mag = sqrt(r_sq);
         const double r3_inv = 1.0 / (r_sq * r_mag);
@@ -148,6 +148,7 @@ __global__ void compute_single_point_field_kernel(
         const double B_factor = mu_0_qe_div_4pi * particle_q[i] * r3_inv;
         const double E_factor = qe_div_4pi_eps0 * particle_q[i] * r3_inv;
         
+        // Use Kahan summation for better precision
         kahan_add(sum_B[0], comp_B[0], B_factor * Bx);
         kahan_add(sum_B[1], comp_B[1], B_factor * By);
         kahan_add(sum_B[2], comp_B[2], B_factor * Bz);
@@ -156,30 +157,33 @@ __global__ void compute_single_point_field_kernel(
         kahan_add(sum_E[2], comp_E[2], E_factor * dz);
     }
     
-    // Shared memory for reduction with compensation tracking
+    // Block-level reduction with Kahan summation
     __shared__ double sdata[6][256];
     __shared__ double scomp[6][256];
     
     int tid = threadIdx.x;
     
-    // Store thread results
-    sdata[0][tid] = sum_B[0];
-    sdata[1][tid] = sum_B[1];
-    sdata[2][tid] = sum_B[2];
-    sdata[3][tid] = sum_E[0];
-    sdata[4][tid] = sum_E[1];
-    sdata[5][tid] = sum_E[2];
-    
-    // Initialize compensation
-    for (int i = 0; i < 6; ++i) {
-        scomp[i][tid] = 0.0;
+    // Store thread results in shared memory
+    if (tid < 256) {
+        sdata[0][tid] = sum_B[0];
+        sdata[1][tid] = sum_B[1];
+        sdata[2][tid] = sum_B[2];
+        sdata[3][tid] = sum_E[0];
+        sdata[4][tid] = sum_E[1];
+        sdata[5][tid] = sum_E[2];
+        
+        // Initialize compensation
+        for (int i = 0; i < 6; ++i) {
+            scomp[i][tid] = comp_B[i % 3];
+            if (i >= 3) scomp[i][tid] = comp_E[i - 3];
+        }
     }
     
     __syncthreads();
     
     // Kahan reduction in shared memory
     for (int s = blockDim.x / 2; s > 0; s >>= 1) {
-        if (tid < s) {
+        if (tid < s && tid + s < 256) {
             for (int i = 0; i < 6; ++i) {
                 kahan_add(sdata[i][tid], scomp[i][tid], sdata[i][tid + s]);
             }
@@ -187,15 +191,16 @@ __global__ void compute_single_point_field_kernel(
         __syncthreads();
     }
     
-    // Atomic add final block results
+    // Write block results instead of atomic add
     if (tid == 0) {
+        int block_idx = blockIdx.x;
         for (int i = 0; i < 6; ++i) {
-            atomicAdd(&result[i], sdata[i][0]);
+            block_results[i * gridDim.x + block_idx] = sdata[i][0];
         }
     }
 }
-
 // CUDA kernel for particle timestep update (for convergence study)
+// Replace lines 208-230 with this improved kernel:
 __global__ void update_particles_convergence_kernel(
     double* __restrict__ particle_x,
     double* __restrict__ particle_y,
@@ -206,27 +211,29 @@ __global__ void update_particles_convergence_kernel(
     double velocity_x,
     double velocity_y,
     int num_particles)
-{
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-    
-    if (i >= num_particles) return;
-    
-    // Rotational update using angular velocity directly
-    const double theta = particle_wz[i] * dt;  // wz is already negative for clockwise
-    const double cos_theta = cos(theta);
-    const double sin_theta = sin(theta);
-    
-    const double dx = particle_x[i] - center_x;
-    const double dy = particle_y[i] - center_y;
-    
-    particle_x[i] = center_x + (dx * cos_theta - dy * sin_theta);
-    particle_y[i] = center_y + (dx * sin_theta + dy * cos_theta);
-    
-    // Translational update
-    particle_x[i] += velocity_x * dt;
-    particle_y[i] += velocity_y * dt;
-}
+    {
+        int i = blockIdx.x * blockDim.x + threadIdx.x;
+        
+        if (i >= num_particles) return;
+        
+        // Get current position relative to current center
+        double dx = particle_x[i] - center_x;
+        double dy = particle_y[i] - center_y;
 
+        double theta = particle_wz[i] * dt;
+        double cos_theta = cos(theta);
+        double sin_theta = sin(theta);
+
+        double rotated_dx = dx * cos_theta - dy * sin_theta;
+        double rotated_dy = dx * sin_theta + dy * cos_theta;
+
+        double new_center_x = center_x + velocity_x * dt;
+        double new_center_y = center_y + velocity_y * dt;
+
+        // Final position = new center + rotated relative position
+        particle_x[i] = new_center_x + rotated_dx;
+        particle_y[i] = new_center_y + rotated_dy;
+    }
 // PDF class for grain diameter distribution
 class CustomPDF {
 private:
@@ -486,61 +493,90 @@ class ConvergenceSolver {
 private:
     std::unique_ptr<ParticleDataGPU> gpu_particles;
     double *d_result;
+    double *d_block_results;  // Add this for per-block results
     int max_particles;
+    int max_blocks;
     
 public:
     ConvergenceSolver(int max_n_particles) : max_particles(max_n_particles) {
         gpu_particles = std::make_unique<ParticleDataGPU>(max_n_particles);
-        CUDA_CHECK(cudaMalloc(&d_result, 6 * sizeof(double))); // Bx, By, Bz, Ex, Ey, Ez
+        CUDA_CHECK(cudaMalloc(&d_result, 6 * sizeof(double)));
+        
+        // Allocate for per-block results
+        max_blocks = (max_n_particles + 255) / 256;
+        CUDA_CHECK(cudaMalloc(&d_block_results, 6 * max_blocks * sizeof(double)));
     }
     
     ~ConvergenceSolver() {
         cudaFree(d_result);
+        cudaFree(d_block_results);
     }
     
     void setParticles(const std::vector<double>& h_x, const std::vector<double>& h_y, const std::vector<double>& h_z,
-                      const std::vector<double>& h_q, const std::vector<double>& h_wx, const std::vector<double>& h_wy, 
-                      const std::vector<double>& h_wz) {
-        
-        int n = h_x.size();
-        size_t size = n * sizeof(double);
-        CUDA_CHECK(cudaMemcpy(gpu_particles->x, h_x.data(), size, cudaMemcpyHostToDevice));
-        CUDA_CHECK(cudaMemcpy(gpu_particles->y, h_y.data(), size, cudaMemcpyHostToDevice));
-        CUDA_CHECK(cudaMemcpy(gpu_particles->z, h_z.data(), size, cudaMemcpyHostToDevice));
-        CUDA_CHECK(cudaMemcpy(gpu_particles->q, h_q.data(), size, cudaMemcpyHostToDevice));
-        CUDA_CHECK(cudaMemcpy(gpu_particles->wx, h_wx.data(), size, cudaMemcpyHostToDevice));
-        CUDA_CHECK(cudaMemcpy(gpu_particles->wy, h_wy.data(), size, cudaMemcpyHostToDevice));
-        CUDA_CHECK(cudaMemcpy(gpu_particles->wz, h_wz.data(), size, cudaMemcpyHostToDevice));
-    }
+                  const std::vector<double>& h_q, const std::vector<double>& h_wx, const std::vector<double>& h_wy, 
+                  const std::vector<double>& h_wz) {
+    
+    int n = h_x.size();
+    size_t size = n * sizeof(double);
+    
+    // Copy existing data
+    CUDA_CHECK(cudaMemcpy(gpu_particles->x, h_x.data(), size, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(gpu_particles->y, h_y.data(), size, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(gpu_particles->z, h_z.data(), size, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(gpu_particles->q, h_q.data(), size, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(gpu_particles->wx, h_wx.data(), size, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(gpu_particles->wy, h_wy.data(), size, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(gpu_particles->wz, h_wz.data(), size, cudaMemcpyHostToDevice));
+}
     
     std::vector<double> computeSinglePointField(int num_particles, double point_x, double point_y, double point_z,
                                                double center_x, double center_y, double v_x, double v_y) {
         
-        // Clear result
+        // Clear results
         CUDA_CHECK(cudaMemset(d_result, 0, 6 * sizeof(double)));
+        CUDA_CHECK(cudaMemset(d_block_results, 0, 6 * max_blocks * sizeof(double)));
         
         int threads_per_block = 256;
-        int blocks = std::min(256, (num_particles + threads_per_block - 1) / threads_per_block);
+        int blocks = (num_particles + threads_per_block - 1) / threads_per_block;
         
+        // Launch kernel with block results
         compute_single_point_field_kernel<<<blocks, threads_per_block>>>(
             gpu_particles->x, gpu_particles->y, gpu_particles->z,
             gpu_particles->q, gpu_particles->wx, gpu_particles->wy, gpu_particles->wz,
             point_x, point_y, point_z,
-            d_result,
+            d_block_results,  // Pass block results buffer
             num_particles, center_x, center_y, v_x, v_y);
         
         CUDA_CHECK(cudaGetLastError());
         CUDA_CHECK(cudaDeviceSynchronize());
         
-        std::vector<double> h_result(6);
-        CUDA_CHECK(cudaMemcpy(h_result.data(), d_result, 6 * sizeof(double), cudaMemcpyDeviceToHost));
+        // Copy block results to CPU
+        std::vector<double> h_block_results(6 * blocks);
+        CUDA_CHECK(cudaMemcpy(h_block_results.data(), d_block_results, 
+                             6 * blocks * sizeof(double), cudaMemcpyDeviceToHost));
         
-        return h_result;
+        // High-precision CPU summation using Kahan summation
+        std::vector<double> final_result(6, 0.0);
+        std::vector<double> compensation(6, 0.0);
+        
+        for (int b = 0; b < blocks; ++b) {
+            for (int component = 0; component < 6; ++component) {
+                double value = h_block_results[component * blocks + b];
+                
+                // Kahan summation on CPU
+                double y = value - compensation[component];
+                double t = final_result[component] + y;
+                compensation[component] = (t - final_result[component]) - y;
+                final_result[component] = t;
+            }
+        }
+        
+        return final_result;
     }
     
-    void updateParticles(int num_particles, double dt, double center_x, double center_y, double velocity_x, double velocity_y) {
+     void updateParticles(int num_particles, double dt, double center_x, double center_y, double velocity_x, double velocity_y) {
         int threads_per_block = 256;
-        int blocks = std::min(256, (num_particles + threads_per_block - 1) / threads_per_block);
+        int blocks = (num_particles + threads_per_block - 1) / threads_per_block;
         
         update_particles_convergence_kernel<<<blocks, threads_per_block>>>(
             gpu_particles->x, gpu_particles->y, gpu_particles->wz,
@@ -673,6 +709,15 @@ int main() {
         for (int N_Sim : particle_counts) {
             std::cout << "\nTesting " << N_Sim << " particles (" << num_runs << " runs)..." << std::endl;
             
+            size_t free_mem, total_mem;
+            CUDA_CHECK(cudaMemGetInfo(&free_mem, &total_mem));
+            std::cout << "GPU Memory - Total: " << total_mem / (1024*1024) << " MB, " 
+                    << "Free: " << free_mem / (1024*1024) << " MB" << std::endl;
+
+            // Add this before each particle count test:
+            std::cout << "Required memory for " << N_Sim << " particles: " 
+                    << (N_Sim * 7 * sizeof(double)) / (1024*1024) << " MB" << std::endl;
+
             ConvergenceResult result;
             result.particle_count = N_Sim;
             result.initializeForTimesteps(test_timesteps, num_runs);
@@ -697,33 +742,34 @@ int main() {
                 
                 solver.setParticles(h_x, h_y, h_z, h_q, h_wx, h_wy, h_wz);
                 
-                // Simulate through time and record fields at test timesteps
+                // EFFICIENT: Single pass through all timesteps
                 double current_center_x = center_x;
                 double current_center_y = center_y;
-                int current_timestep = 0;  // Track current simulation time for this run
+                size_t next_target_idx = 0;  // Index of next target timestep to record
                 
-                for (size_t t_idx = 0; t_idx < test_timesteps.size(); ++t_idx) {
-                    int target_timestep = test_timesteps[t_idx];
+                for (int timestep = 0; timestep <= timesteps; ++timestep) {
+                    // Check if this is a target timestep
+                    if (next_target_idx < test_timesteps.size() && timestep == test_timesteps[next_target_idx]) {
+                        // Compute field at this target timestep
+                        auto field = solver.computeSinglePointField(N_Sim, test_x, test_y, test_z, 
+                                                                current_center_x, current_center_y, velocity_x, velocity_y);
+                        
+                        result.Bx_values[next_target_idx].push_back(field[0]);
+                        result.By_values[next_target_idx].push_back(field[1]);
+                        result.Bz_values[next_target_idx].push_back(field[2]);
+                        result.Ex_values[next_target_idx].push_back(field[3]);
+                        result.Ey_values[next_target_idx].push_back(field[4]);
+                        result.Ez_values[next_target_idx].push_back(field[5]);
+                        
+                        next_target_idx++;
+                    }
                     
-                    // Advance particles from current_timestep to target_timestep
-                    int steps_to_advance = target_timestep - current_timestep;
-                    for (int step = 0; step < steps_to_advance; ++step) {
+                    // Advance particles to next timestep
+                    if (timestep < timesteps) {
                         solver.updateParticles(N_Sim, dt, current_center_x, current_center_y, velocity_x, velocity_y);
                         current_center_x += velocity_x * dt;
                         current_center_y += velocity_y * dt;
-                        current_timestep++;
                     }
-                    
-                    // Compute field at test point for this timestep
-                    auto field = solver.computeSinglePointField(N_Sim, test_x, test_y, test_z, 
-                                                               current_center_x, current_center_y, velocity_x, velocity_y);
-                    
-                    result.Bx_values[t_idx].push_back(field[0]);
-                    result.By_values[t_idx].push_back(field[1]);
-                    result.Bz_values[t_idx].push_back(field[2]);
-                    result.Ex_values[t_idx].push_back(field[3]);
-                    result.Ey_values[t_idx].push_back(field[4]);
-                    result.Ez_values[t_idx].push_back(field[5]);
                 }
                 
                 if ((run + 1) % 100 == 0) {
