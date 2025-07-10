@@ -28,22 +28,15 @@ end
 %% Create IOSR boxplots with tiled layout
 % First, create figures with tiledlayouts for each field component
 field_names = {'Bx', 'By', 'Bz', 'Ex', 'Ey', 'Ez'};
-field_units = {'$B_x$ [T]', '$B_y$ [T]', '$B_z$ [T]', '$E_x$ [V/m]', '$E_y$ [V/m]', '$E_z$ [V/m]'};
+field_units = {'B_x (T)', 'B_y (T)', 'B_z (T)', 'E_x (V/m)', 'E_y (V/m)', 'E_z (V/m)'};
 
 % Create figures and tiledlayouts first
 fig_handles = [];
 for i = 1:length(field_names)
     fig_handles(i) = figure(i);
     tiledlayout(length(particle_counts), 1, 'TileSpacing', 'compact', 'Padding', 'compact');
+    sgtitle(sprintf('%s Field Distribution vs Time - All Particle Counts', field_units{i}), 'FontSize', 16);
 end
-
-
-boxy_bx = NaN(n_runs, length(particle_counts));
-boxy_by = NaN(n_runs, length(particle_counts));
-boxy_bz = NaN(n_runs, length(particle_counts));
-boxy_ex = NaN(n_runs, length(particle_counts));
-boxy_ey = NaN(n_runs, length(particle_counts));
-boxy_ez = NaN(n_runs, length(particle_counts));
 
 for j = 1:length(particle_counts)
     N = particle_counts(j);
@@ -80,7 +73,7 @@ for j = 1:length(particle_counts)
     Ex_matrix = NaN(n_runs, n_timesteps);
     Ey_matrix = NaN(n_runs, n_timesteps);
     Ez_matrix = NaN(n_runs, n_timesteps);
-  
+    
     % Fill matrices - handle variable number of data points per timestep
     for t_idx = 1:n_timesteps
         timestep = unique_timesteps(t_idx);
@@ -123,58 +116,19 @@ for j = 1:length(particle_counts)
             boxplot(field_matrices{i}, unique_times);
         end
 
-        if j == 5
-            xlabel('Time (s)', 'FontSize', 10);
-        elseif j == 3
-            ylabel(sprintf('%s',field_units{i}))
-            xticklabels([])
-        else
-            xticklabels([])
-        end
-        
+        xlabel('Time (s)', 'FontSize', 10);
+        ylabel(sprintf('%s (N=%d)', field_units{i}, N), 'FontSize', 10);
+        title(sprintf('N=%d particles', N), 'FontSize', 12);
         grid on;
+        
        
     end
-
-        boxy_bx(:,j) = Bx_matrix(:,9);
-        boxy_by(:,j) = By_matrix(:,9);
-        boxy_bz(:,j) = Bz_matrix(:,9);
-        boxy_ex(:,j) = Ex_matrix(:,9);
-        boxy_ey(:,j) = Ey_matrix(:,9);
-        boxy_ez(:,j) = Ez_matrix(:,9);
+    
 end
-%%
-particles_10_form = {'$10^3$','$10^4$','$10^5$','$10^6$','$10^7$'};
-figure
-iosr.statistics.boxPlot(boxy_bx, 'scaleWidth', true, 'notch', true, 'showOutliers', false);
-xticklabels(particles_10_form)
-xlabel("N")
-ylabel(field_units{1})
-figure
-iosr.statistics.boxPlot(boxy_by, 'scaleWidth', true, 'notch', true, 'showOutliers', false);
-xticklabels(particles_10_form)
-xlabel("N")
-ylabel(field_units{2})
-figure
-iosr.statistics.boxPlot(boxy_bz, 'scaleWidth', true, 'notch', true, 'showOutliers', false);
-xticklabels(particles_10_form)
-xlabel("N")
-ylabel(field_units{3})
-figure
-iosr.statistics.boxPlot(boxy_ex, 'scaleWidth', true, 'notch', true, 'showOutliers', false);
-xticklabels(particles_10_form)
-xlabel("N")
-ylabel(field_units{4})
-figure
-iosr.statistics.boxPlot(boxy_ey, 'scaleWidth', true, 'notch', true, 'showOutliers', false);
-xticklabels(particles_10_form)
-xlabel("N")
-ylabel(field_units{5})
-figure
-iosr.statistics.boxPlot(boxy_ez, 'scaleWidth', true, 'notch', true, 'showOutliers', false);
-xticklabels(particles_10_form)
-xlabel("N")
-ylabel(field_units{6})
-
 
 %%
+figure
+hold on
+for i = 1:1000
+    plot(Bz_matrix(i,:))
+end
