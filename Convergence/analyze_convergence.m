@@ -38,7 +38,7 @@ for i = 1:length(field_names)
 
 end
 
-n_runs = unique(loaded_data.N1000_timeseries.runs);
+n_runs = unique(loaded_data.N1000_timeseries.run);
 
 boxy_bx = NaN(n_runs, length(particle_counts));
 boxy_by = NaN(n_runs, length(particle_counts));
