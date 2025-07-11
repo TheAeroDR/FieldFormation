@@ -14,10 +14,9 @@
 #include <filesystem>
 #include <chrono>
 
-// Physical constants (same as CPU version)
+// Physical constants
 namespace PhysicalConstants {
     constexpr double pi = 3.14159265358979323846;
-    // Note: mu_0, eps_0, q_e are defined directly in CUDA kernel for GPU compatibility
 }
 
 // Error checking macro
@@ -30,14 +29,13 @@ namespace PhysicalConstants {
         } \
     } while(0)
 
-// GPU-optimized particle data structure
+// GPU particle data structure
 struct ParticleDataGPU {
-    double *x, *y, *z;      // positions
-    double *q;              // charges  
-    double *wx, *wy, *wz;   // angular velocities
+    double *x, *y, *z;
+    double *q;
+    double *wx, *wy, *wz;
     int num_particles;
     
-    // Constructor
     ParticleDataGPU(int n) : num_particles(n) {
         size_t size = n * sizeof(double);
         CUDA_CHECK(cudaMalloc(&x, size));
@@ -49,7 +47,6 @@ struct ParticleDataGPU {
         CUDA_CHECK(cudaMalloc(&wz, size));
     }
     
-    // Destructor
     ~ParticleDataGPU() {
         cudaFree(x);
         cudaFree(y);
@@ -60,7 +57,6 @@ struct ParticleDataGPU {
         cudaFree(wz);
     }
     
-    // Copy data from CPU
     void copyFromCPU(const std::vector<double>& h_x, const std::vector<double>& h_y, const std::vector<double>& h_z,
                      const std::vector<double>& h_q, const std::vector<double>& h_wx, const std::vector<double>& h_wy, const std::vector<double>& h_wz) {
         size_t size = num_particles * sizeof(double);
@@ -74,7 +70,15 @@ struct ParticleDataGPU {
     }
 };
 
-// CUDA kernel for field computation
+// Kahan summation device function
+__device__ void kahan_add(double& sum, double& compensation, double value) {
+    double y = value - compensation;
+    double t = sum + y;
+    compensation = (t - sum) - y;
+    sum = t;
+}
+
+// Updated CUDA kernel for field computation with Kahan summation
 __global__ void compute_fields_kernel(
     const double* __restrict__ particle_x,
     const double* __restrict__ particle_y,
@@ -94,10 +98,10 @@ __global__ void compute_fields_kernel(
     double v_x,
     double v_y)
 {
-    // Constants
-    const double mu_0 = 1.2566370621219e-6;
-    const double eps_0 = 8.854187812813e-12;
-    const double q_e = 1.60217663e-19;
+    // Physical constants with high precision
+    const double mu_0 = 1.25663706212e-6;
+    const double eps_0 = 8.8541878128e-12;
+    const double q_e = 1.602176634e-19;
     const double pi = 3.14159265358979323846;
     
     const double mu_0_qe_div_4pi = (mu_0 * q_e) / (4.0 * pi);
@@ -111,8 +115,11 @@ __global__ void compute_fields_kernel(
     const double py = grid_y[grid_idx];
     const double pz = grid_z[grid_idx];
     
-    double Bx_sum = 0.0, By_sum = 0.0, Bz_sum = 0.0;
-    double Ex_sum = 0.0, Ey_sum = 0.0, Ez_sum = 0.0;
+    // Kahan summation variables
+    double sum_B[3] = {0.0, 0.0, 0.0};
+    double comp_B[3] = {0.0, 0.0, 0.0};
+    double sum_E[3] = {0.0, 0.0, 0.0};
+    double comp_E[3] = {0.0, 0.0, 0.0};
     
     // Each thread processes all particles for one grid point
     for (int i = 0; i < num_particles; ++i) {
@@ -121,41 +128,36 @@ __global__ void compute_fields_kernel(
         const double dz = pz - particle_z[i];
         
         const double r_sq = dx*dx + dy*dy + dz*dz;
-        const double r_norm = sqrt(r_sq);
-        const double r3_inv = 1.0 / fmax(r_sq * r_norm, 1e-12);
+        const double r_mag = sqrt(r_sq);
+        const double r3_inv = 1.0 / (r_sq * r_mag);
         
-        // Magnetic field calculation using Biot-Savart law
-        // B = (μ₀/4π) * q * (ω × r) × r̂ / r²
-        // First compute ω × r (where r is radius vector from dust devil centre to particle)
-        // For dust devil, particles rotate around the dust devil centre
-        const double r_x = particle_x[i] - center_x;  // Radius vector x component
-        const double r_y = particle_y[i] - center_y;  // Radius vector y component
-        const double r_z = particle_z[i] - 0.0;       // Radius vector z component (centre z = 0)
+        // Magnetic field calculation
+        const double r_x = particle_x[i] - center_x;
+        const double r_y = particle_y[i] - center_y;
+        const double r_z = particle_z[i] - 0.0;
         
         const double wxr_x = particle_wy[i] * r_z - particle_wz[i] * r_y;
         const double wxr_y = particle_wz[i] * r_x - particle_wx[i] * r_z;
         const double wxr_z = particle_wx[i] * r_y - particle_wy[i] * r_x;
 
-        // then compute v_total = v_rot + v_trans, where v_rot = ω × r
         const double v_total_x = wxr_x + v_x;
         const double v_total_y = wxr_y + v_y;
-        const double v_total_z = wxr_z;  // No translational velocity in z direction
+        const double v_total_z = wxr_z;
         
-        // Then compute v_total × d (where d is displacement vector to field point)
-        const double Bx = v_total_y * dz - v_total_z * dy;  // Magnetic field x component
-        const double By = v_total_z * dx - v_total_x * dz;  // Magnetic field y component  
-        const double Bz = v_total_x * dy - v_total_y * dx;  // Magnetic field z component
+        const double Bx = v_total_y * dz - v_total_z * dy;
+        const double By = v_total_z * dx - v_total_x * dz;
+        const double Bz = v_total_x * dy - v_total_y * dx;
         
         const double B_factor = mu_0_qe_div_4pi * particle_q[i] * r3_inv;
         const double E_factor = qe_div_4pi_eps0 * particle_q[i] * r3_inv;
         
-        Bx_sum += B_factor * Bx;
-        By_sum += B_factor * By;
-        Bz_sum += B_factor * Bz;
-        
-        Ex_sum += E_factor * dx;
-        Ey_sum += E_factor * dy;
-        Ez_sum += E_factor * dz;
+        // Use Kahan summation for better precision
+        kahan_add(sum_B[0], comp_B[0], B_factor * Bx);
+        kahan_add(sum_B[1], comp_B[1], B_factor * By);
+        kahan_add(sum_B[2], comp_B[2], B_factor * Bz);
+        kahan_add(sum_E[0], comp_E[0], E_factor * dx);
+        kahan_add(sum_E[1], comp_E[1], E_factor * dy);
+        kahan_add(sum_E[2], comp_E[2], E_factor * dz);
     }
     
     // Store results (x, y, z, Bx, By, Bz, Ex, Ey, Ez)
@@ -163,20 +165,19 @@ __global__ void compute_fields_kernel(
     output_data[base_idx + 0] = px;
     output_data[base_idx + 1] = py;
     output_data[base_idx + 2] = pz;
-    output_data[base_idx + 3] = Bx_sum;
-    output_data[base_idx + 4] = By_sum;
-    output_data[base_idx + 5] = Bz_sum;
-    output_data[base_idx + 6] = Ex_sum;
-    output_data[base_idx + 7] = Ey_sum;
-    output_data[base_idx + 8] = Ez_sum;
+    output_data[base_idx + 3] = sum_B[0];
+    output_data[base_idx + 4] = sum_B[1];
+    output_data[base_idx + 5] = sum_B[2];
+    output_data[base_idx + 6] = sum_E[0];
+    output_data[base_idx + 7] = sum_E[1];
+    output_data[base_idx + 8] = sum_E[2];
 }
 
-// CUDA kernel for particle timestep update
+// Updated CUDA kernel for particle timestep update
 __global__ void update_particles_kernel(
     double* __restrict__ particle_x,
     double* __restrict__ particle_y,
-    const double* __restrict__ particle_R,
-    const double* __restrict__ particle_Vt,
+    const double* __restrict__ particle_wz,
     double dt,
     double center_x,
     double center_y,
@@ -188,22 +189,23 @@ __global__ void update_particles_kernel(
     
     if (i >= num_particles) return;
     
-    // Rotational update
-    if (particle_R[i] > 0.0) {
-        const double theta = -(particle_Vt[i] / particle_R[i]) * dt;
-        const double cos_theta = cos(theta);
-        const double sin_theta = sin(theta);
-        
-        const double dx = particle_x[i] - center_x;
-        const double dy = particle_y[i] - center_y;
-        
-        particle_x[i] = center_x + (dx * cos_theta - dy * sin_theta);
-        particle_y[i] = center_y + (dx * sin_theta + dy * cos_theta);
-    }
-    
-    // Translational update
-    particle_x[i] += velocity_x * dt;
-    particle_y[i] += velocity_y * dt;
+    // Get current position relative to current center
+    double dx = particle_x[i] - center_x;
+    double dy = particle_y[i] - center_y;
+
+    double theta = particle_wz[i] * dt;
+    double cos_theta = cos(theta);
+    double sin_theta = sin(theta);
+
+    double rotated_dx = dx * cos_theta - dy * sin_theta;
+    double rotated_dy = dx * sin_theta + dy * cos_theta;
+
+    double new_center_x = center_x + velocity_x * dt;
+    double new_center_y = center_y + velocity_y * dt;
+
+    // Final position = new center + rotated relative position
+    particle_x[i] = new_center_x + rotated_dx;
+    particle_y[i] = new_center_y + rotated_dy;
 }
 
 // Host wrapper class
@@ -212,7 +214,6 @@ private:
     std::unique_ptr<ParticleDataGPU> gpu_particles;
     double *d_grid_x, *d_grid_y, *d_grid_z;
     double *d_output;
-    double *d_particle_R, *d_particle_Vt;  // For timestep updates
     int num_particles;
     int max_grid_points;
     
@@ -221,7 +222,7 @@ public:
         : num_particles(n_particles), max_grid_points(max_grid) {
         
         // RTX 4000 Ada has 20GB VRAM - can handle full grid without batching
-        int actual_gpu_grid_size = max_grid; // No batching needed with 20GB VRAM
+        int actual_gpu_grid_size = max_grid;
         
         // Allocate GPU memory
         gpu_particles = std::make_unique<ParticleDataGPU>(n_particles);
@@ -230,8 +231,6 @@ public:
         CUDA_CHECK(cudaMalloc(&d_grid_y, actual_gpu_grid_size * sizeof(double)));
         CUDA_CHECK(cudaMalloc(&d_grid_z, actual_gpu_grid_size * sizeof(double)));
         CUDA_CHECK(cudaMalloc(&d_output, actual_gpu_grid_size * 9 * sizeof(double)));
-        CUDA_CHECK(cudaMalloc(&d_particle_R, n_particles * sizeof(double)));
-        CUDA_CHECK(cudaMalloc(&d_particle_Vt, n_particles * sizeof(double)));
         
         std::cout << "CUDA initialized for RTX 4000 Ada (20GB VRAM): " << actual_gpu_grid_size << " grid points" << std::endl;
     }
@@ -241,19 +240,13 @@ public:
         cudaFree(d_grid_y);
         cudaFree(d_grid_z);
         cudaFree(d_output);
-        cudaFree(d_particle_R);
-        cudaFree(d_particle_Vt);
     }
     
     void setParticles(const std::vector<double>& h_x, const std::vector<double>& h_y, const std::vector<double>& h_z,
                       const std::vector<double>& h_q, const std::vector<double>& h_wx, const std::vector<double>& h_wy, 
-                      const std::vector<double>& h_wz, const std::vector<double>& h_R, const std::vector<double>& h_Vt) {
+                      const std::vector<double>& h_wz) {
         
         gpu_particles->copyFromCPU(h_x, h_y, h_z, h_q, h_wx, h_wy, h_wz);
-        
-        // Copy R and Vt for timestep updates
-        CUDA_CHECK(cudaMemcpy(d_particle_R, h_R.data(), num_particles * sizeof(double), cudaMemcpyHostToDevice));
-        CUDA_CHECK(cudaMemcpy(d_particle_Vt, h_Vt.data(), num_particles * sizeof(double), cudaMemcpyHostToDevice));
     }
     
     void computeFields(const std::vector<double>& h_grid_x, const std::vector<double>& h_grid_y, 
@@ -263,7 +256,7 @@ public:
         int num_grid = h_grid_x.size();
         
         // RTX 4000 Ada with 20GB VRAM - no batching needed for 1M+ grid points
-        int max_grid_per_batch = max_grid_points; // Process all points at once
+        int max_grid_per_batch = max_grid_points;
         
         if (num_grid > max_grid_per_batch) {
             std::cout << "Large grid (" << num_grid << " points) - using batched computation..." << std::endl;
@@ -335,8 +328,7 @@ public:
         int blocks = (num_particles + threads_per_block - 1) / threads_per_block;
         
         update_particles_kernel<<<blocks, threads_per_block>>>(
-            gpu_particles->x, gpu_particles->y,
-            d_particle_R, d_particle_Vt,
+            gpu_particles->x, gpu_particles->y, gpu_particles->wz,
             dt, center_x, center_y, velocity_x, velocity_y,
             num_particles);
         
@@ -352,7 +344,7 @@ public:
     }
 };
 
-// CPU-compatible PDF for grain diameter distribution
+// PDF class for grain diameter distribution
 class CustomPDF {
 private:
     double h_t;
@@ -424,15 +416,14 @@ public:
     }
 };
 
-// CPU-compatible particle structure for initialization
+// Particle structure
 struct SimpleParticle {
     double r, q, R, Vt;
     double x, y, z, wx, wy, wz;
     
-    // CPU-compatible charge profile function
     double charge_profile() {
         double q;
-        double ed = 0.2;  // surface elecron density /μm^2
+        double ed = 2;
         if(ed == 1){
             q = 12.53 * std::pow(r, 2) - 3.73e4 * std::pow(r, -0.8);
         }
@@ -454,8 +445,14 @@ struct SimpleParticle {
         else if(ed == 0.45){
             q = 5.643 * std::pow(r, 2) - 1.936e4 * std::pow(r, -0.8);
         }
+        else if(ed == 1.8){
+            q = 22.55 * std::pow(r, 2) - 5.656e4 * std::pow(r, -0.8);
+        }
         else if(ed == 2){
             q = 25.07 * std::pow(r, 2) - 5.464e4 * std::pow(r, -0.8);
+        }
+        else if(ed == 2.2){
+            q = 27.56 * std::pow(r, 2) - 8.025e4 * std::pow(r, -0.8);
         }
         else if(ed == 2.5){
             q = 31.33 * std::pow(r, 2) - 6.76e4 * std::pow(r, -0.8);
@@ -476,18 +473,15 @@ struct SimpleParticle {
         return q;
     }
     
-    // CPU-compatible velocity profile function
     double dd_vel_profile(double V0, double D) {
-        int switching = 3; // 0 for Vasitas, 1 for Rankine, 2 for Burgers, 3 for Hollow core
+        int switching = 3; // Hollow core
         
-        // vasitas vortex
         if (switching == 0){
             double n = 2.0;
             double a = 2.0;
             double rbar = R/(D/4.0);
             return V0 * (rbar/pow(std::pow(rbar,a*n)+1.0,1/n));
         }
-        // rankine vortex
         else if (switching == 1){
             if (R<=(D/2.0)){
                 return V0 * (R/(D/4.0));
@@ -496,12 +490,10 @@ struct SimpleParticle {
                 return V0 * (D/4.0)/(R);
             }
         }
-        // burgers vortex
         else if (switching == 2){
             double rbar = R/(D/4.0);
             return V0 / rbar * (1.0 - std::exp(-std::pow(rbar, 2.0)));
         }
-        // hollow core vortex
         else if (switching == 3){
             if (R<(D/4.0)){
                 return 0;
@@ -517,7 +509,7 @@ struct SimpleParticle {
     }
 };
 
-// CPU-compatible helper functions
+// Helper functions
 double rad2height(double D) {
     return std::pow((D / 2.0) * (1.0 / 0.913), 2.0);
 }
@@ -529,13 +521,12 @@ double dd_volume(double D, double H) {
 }
 
 double tan_vel_profile(double H) {
-    double g0 = 9.81; // m/s^2
-    double Ro = 0.375; // Rossby number
-    double deltaT = 8.0; // K
-    double T0 = 305; // K
-    double b0 = (g0 * deltaT)/T0; // buoyancy parameter
+    double g0 = 9.81;
+    double Ro = 0.375;
+    double deltaT = 8.0;
+    double T0 = 305;
+    double b0 = (g0 * deltaT)/T0;
     double K = 0.0;
-
     int switching = 3; // 0 for Vasitas, 1 for Rankine, 2 for Burgers, 3 for Hollow core
     if (switching == 0){
         K = PhysicalConstants::pi / 2.0; // Vasitas vortex
@@ -582,33 +573,25 @@ std::vector<double> thirdbiased(int N, double min, double max) {
     return t;
 }
 
-// Full CPU-compatible initialization
-std::vector<SimpleParticle> initializeParticles(double D, int N_Sim, int N_AtHeight) {
-    const double dust_rho = 2.0e6;     // g/m^3
-    const double dust_loading = 0.296; // g/m^3
+std::vector<SimpleParticle> initializeParticles(double D, int N_Sim, int N_AtHeight, unsigned int seed) {
+    const double dust_rho = 2.0e6;
+    const double dust_loading = 0.296;
 
     double max_height = rad2height(D);
     double volume = dd_volume(D, max_height);
     double V0 = tan_vel_profile(max_height);
     double dust_mass = dust_loading * volume;
-    double av_mass = dust_rho * (4.0 / 3.0) * PhysicalConstants::pi * std::pow(3e-6, 3.0);  // average mass of a 3 micron particle
+    double av_mass = dust_rho * (4.0 / 3.0) * PhysicalConstants::pi * std::pow(3e-6, 3.0);
 
     double N = std::ceil(dust_mass / av_mass);
     double clump_factor = N / static_cast<double>(N_Sim);
 
     int N_heights = N_Sim / N_AtHeight;
 
-    // 1/3 spacing of heights (matching CPU)
     std::vector<double> heights = thirdbiased(N_heights, 0.0, max_height);
-    // alternatively, for uniform spacing:
-    // std::vector<double> heights(N_heights);
-
     std::vector<SimpleParticle> particles(N_Sim);
-    std::random_device rd;
-    std::mt19937 gen(rd());
+    std::mt19937 gen(seed);
     std::uniform_real_distribution<> angle_dist(0.0, 2.0 * PhysicalConstants::pi);
-
-    std::cout << "CUDA: Initializing " << N_Sim << " particles..." << std::endl;
 
     for (int i = 0; i < N_heights; ++i) {
         std::vector<double> diameters = grain_diameter(heights[i], N_AtHeight);
@@ -626,7 +609,7 @@ std::vector<SimpleParticle> initializeParticles(double D, int N_Sim, int N_AtHei
             p.wz = -1.0 * (p.Vt / p.R);
 
             double theta_offset = angle_dist(gen);
-            p.x = -102.0 + p.R * std::cos(theta_offset);  // Centered at (-102, 0) like CPU version
+            p.x = -102.0 + p.R * std::cos(theta_offset);
             p.y = 0.0 + p.R * std::sin(theta_offset);
             p.q = -1.0 * clump_factor * p.charge_profile();
             
@@ -635,13 +618,12 @@ std::vector<SimpleParticle> initializeParticles(double D, int N_Sim, int N_AtHei
         }
     }
 
-    std::cout << "Particle initialization complete" << std::endl;
     return particles;
 }
 
 void writeCSV(const std::vector<double>& output, int num_points, const std::string& filename) {
     std::ofstream file(filename);
-    file.precision(12);  // Increased precision for double
+    file.precision(12);
     file << std::scientific;
     file << "x,y,z,Bx,By,Bz,Ex,Ey,Ez\n";
     
@@ -662,37 +644,44 @@ int main() {
             std::cerr << "No CUDA devices found!" << std::endl;
             return 1;
         }
-        
-        // Initialize CUDA device
         CUDA_CHECK(cudaSetDevice(0));
         
         // Create output directory
         std::string output_dir = "DavidLosesHisMind1_CUDA";
         std::filesystem::create_directory(output_dir);
         
-        // Problem parameters matching CPU version exactly
-        double D = 7.0;         // Dust devil diameter
-        int N_Sim = 100000;       // 100K particles for testing
-        int N_AtHeight = 100;   // Particles per height level
+        // Problem parameters
+        double D = 7.0;
+        int N_Sim = 100000;
+        int N_AtHeight = 100;
         
         // Grid parameters
-        double grid_spacing = 0.2;  // 0.2m spacing
-        int grid_size = 1021;         // 1021x1021 = 1,042,441 points
-        // For smaller testing: int grid_size = 101; (101x101 = 10,201 points)
+        double grid_spacing = 0.2;
+        int grid_size = 1021;
         
         std::cout << "CUDA Simulation: " << N_Sim << " particles, " << grid_size << "x" << grid_size << " grid" << std::endl;
         
-        auto particles = initializeParticles(D, N_Sim, N_AtHeight);
+        auto particles = initializeParticles(D, N_Sim, N_AtHeight, 12345);
         
+        // Save particles to CSV
+        std::ofstream particle_file(output_dir + "/particles.csv");
+        particle_file << "x,y,z,r,q,R,Vt,wz\n";
+        for (const auto& p : particles) {
+            particle_file << p.x << "," << p.y << "," << p.z << ","
+                          << p.r << "," << p.q << "," << p.R << ","
+                          << p.Vt << "," << p.wz << "\n";
+        }
+        particle_file.close();
+        std::cout << "Particles saved to: " << output_dir << "/particles.csv" << std::endl;
+
         // Create grid points
         std::vector<double> grid_x, grid_y, grid_z;
         
-        // Generate the full grid
-        for (int i = 0; i < grid_size; ++i) { // ys: -102 to 102 (full resolution)
+        for (int i = 0; i < grid_size; ++i) {
             double y = -102.0 + i * grid_spacing;
-            for (int j = 0; j < grid_size; ++j) { // xs: -102 to 102 (full resolution)
+            for (int j = 0; j < grid_size; ++j) {
                 double x = -102.0 + j * grid_spacing;
-                double z = 1.0; // Fixed z-plane
+                double z = 1.0;
                 grid_x.push_back(x);
                 grid_y.push_back(y);
                 grid_z.push_back(z);
@@ -700,7 +689,7 @@ int main() {
         }
         
         // Convert particles to GPU format
-        std::vector<double> h_x, h_y, h_z, h_q, h_wx, h_wy, h_wz, h_R, h_Vt;
+        std::vector<double> h_x, h_y, h_z, h_q, h_wx, h_wy, h_wz;
         for (const auto& p : particles) {
             h_x.push_back(p.x);
             h_y.push_back(p.y);
@@ -709,20 +698,18 @@ int main() {
             h_wx.push_back(p.wx);
             h_wy.push_back(p.wy);
             h_wz.push_back(p.wz);
-            h_R.push_back(p.R);
-            h_Vt.push_back(p.Vt);
         }
         
         // Initialize CUDA solver
         CUDAFieldSolver solver(N_Sim, grid_x.size());
-        solver.setParticles(h_x, h_y, h_z, h_q, h_wx, h_wy, h_wz, h_R, h_Vt);
+        solver.setParticles(h_x, h_y, h_z, h_q, h_wx, h_wy, h_wz);
         
         // Simulation parameters
         double dt = 5e-1;
-        double T_end = 38.0;  // Full 38 seconds simulation time
-        int timesteps = static_cast<int>(T_end / dt);  // 760 timesteps
-        double center_x = -102.0, center_y = 0.0;  // Dust devil center
-        double velocity_x = 5.38, velocity_y = 0.0;  // Dust devil velocity
+        double T_end = 38.0;
+        int timesteps = static_cast<int>(T_end / dt);
+        double center_x = -102.0, center_y = 0.0;
+        double velocity_x = 5.38, velocity_y = 0.0;
         
         std::cout << "Starting " << timesteps << " timesteps..." << std::endl;
         
@@ -746,7 +733,7 @@ int main() {
             center_x += velocity_x * dt;
             center_y += velocity_y * dt;
             
-            // Progress reporting (every 10 timesteps)
+            // Progress reporting
             if ((t + 1) % 10 == 0 || t == 0) {
                 auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
                 std::cout << "Step " << t+1 << "/" << timesteps << ": " << duration.count() << "ms" << std::endl;
