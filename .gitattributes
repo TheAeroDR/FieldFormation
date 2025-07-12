@@ -1,3 +1,4 @@
 Data/contour_2ed5_10cm_100m.csv filter=lfs diff=lfs merge=lfs -text
 Data/contour_2ed5_10cm_100m.csv filter=lfs diff=lfs merge=lfs -text
 Data/contour_2ed5_10cm_100m.csv filter=lfs diff=lfs merge=lfs -text
+Results/Farrell_2ed_CUDA/*.csv filter=lfs diff=lfs merge=lfs -text
