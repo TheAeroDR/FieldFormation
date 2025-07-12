@@ -98,13 +98,16 @@ grouped = [];
 grouped(1,:,:) = perc_change(minus_set,:);
 grouped(2,:,:) = perc_change(plus_set,:);
 
+
+field_names_stringy = {'B_x$', 'B_y$', 'B_z$', 'E_x$', 'E_y$', 'E_z$'};
+
 figure
 tiledlayout(2,3)
 for i = 1:length(field_names)
     nexttile(i)
     temp = squeeze(grouped(:,:,i));
     bar(temp');
-    ylabel(field_names(i))
+    ylabel(['$\Delta{}' field_names_stringy{i} '[\%]'])
 
 end
 legend('negative change in parameter','positive change in parameter','Location','none','Orientation','horizontal')

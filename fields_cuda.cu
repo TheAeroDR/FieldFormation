@@ -585,7 +585,7 @@ std::vector<SimpleParticle> initializeParticles(double D, int N_Sim, int N_AtHei
 
     double N = std::ceil(dust_mass / av_mass);
     double clump_factor = N / static_cast<double>(N_Sim);
-
+    std::cout << "clump factor is " << clump_factor << std::endl;
     int N_heights = N_Sim / N_AtHeight;
 
     std::vector<double> heights = thirdbiased(N_heights, 0.0, max_height);
@@ -647,12 +647,12 @@ int main() {
         CUDA_CHECK(cudaSetDevice(0));
         
         // Create output directory
-        std::string output_dir = "DavidLosesHisMind1_CUDA";
+        std::string output_dir = "output_cuda";
         std::filesystem::create_directory(output_dir);
         
         // Problem parameters
         double D = 7.0;
-        int N_Sim = 100000;
+        int N_Sim = 1000000;
         int N_AtHeight = 100;
         
         // Grid parameters
