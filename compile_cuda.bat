@@ -19,6 +19,13 @@ if exist "C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Auxiliar
     goto compile
 )
 
+REM Try VS Build Tools 2022
+if exist "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat" (
+    echo Found VS 2022 Build Tools
+    call "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat" > nul 2>&1
+    goto compile
+)
+
 REM Try VS 2019 Community
 if exist "C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Auxiliary\Build\vcvars64.bat" (
     echo Found VS 2019 Community
@@ -26,7 +33,7 @@ if exist "C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Auxil
     goto compile
 )
 
-REM Try VS Build Tools
+REM Try VS Build Tools 2019
 if exist "C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\VC\Auxiliary\Build\vcvars64.bat" (
     echo Found VS 2019 Build Tools
     call "C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\VC\Auxiliary\Build\vcvars64.bat" > nul 2>&1
