@@ -573,7 +573,7 @@ std::vector<double> thirdbiased(int N, double min, double max) {
     return t;
 }
 
-std::vector<SimpleParticle> initializeParticles(double D, int N_Sim, int N_AtHeight, unsigned int seed) {
+std::vector<SimpleParticle> initializeParticles(double D, int N_Sim, int N_AtHeight, double centre_x, double centre_y, unsigned int seed) {
     const double dust_rho = 2.0e6;
     const double dust_loading = 0.296;
 
@@ -609,8 +609,8 @@ std::vector<SimpleParticle> initializeParticles(double D, int N_Sim, int N_AtHei
             p.wz = -1.0 * (p.Vt / p.R);
 
             double theta_offset = angle_dist(gen);
-            p.x = -102.0 + p.R * std::cos(theta_offset);
-            p.y = 0.0 + p.R * std::sin(theta_offset);
+            p.x = centre_x + p.R * std::cos(theta_offset);
+            p.y = centre_y + p.R * std::sin(theta_offset);
             p.q = -1.0 * clump_factor * p.charge_profile();
             
             p.wx = 0.0;
@@ -647,13 +647,20 @@ int main() {
         CUDA_CHECK(cudaSetDevice(0));
         
         // Create output directory
-        std::string output_dir = "DavidLosesHisMind1_CUDA";
+        std::string output_dir = "Farrell_2ed_CUDA";
         std::filesystem::create_directory(output_dir);
         
         // Problem parameters
         double D = 7.0;
-        int N_Sim = 100000;
+        int N_Sim = 1000000;
         int N_AtHeight = 100;
+
+        // Simulation parameters
+        double dt = 5e-1;
+        double T_end = 38.0;
+        int timesteps = static_cast<int>(T_end / dt);
+        double centre_x = -102.0, centre_y = 0.0;
+        double velocity_x = 5.38, velocity_y = 0.0;
         
         // Grid parameters
         double grid_spacing = 0.2;
@@ -661,7 +668,7 @@ int main() {
         
         std::cout << "CUDA Simulation: " << N_Sim << " particles, " << grid_size << "x" << grid_size << " grid" << std::endl;
         
-        auto particles = initializeParticles(D, N_Sim, N_AtHeight, 12345);
+        auto particles = initializeParticles(D, N_Sim, N_AtHeight, centre_x, centre_y, 12345);
         
         // Save particles to CSV
         std::ofstream particle_file(output_dir + "/particles.csv");
@@ -677,17 +684,19 @@ int main() {
         // Create grid points
         std::vector<double> grid_x, grid_y, grid_z;
         
-        for (int i = 0; i < grid_size; ++i) {
-            double y = -102.0 + i * grid_spacing;
+        //for (int i = 0; i < grid_size/2; ++i) {
+        for (int i = 0; i < int(floor(grid_size/2))+1; ++i) {
+            //double y = -102.0 + i * grid_spacing; // generate grid from -102 to 102
+            double z = 0.0 + i * grid_spacing; // generate grid from 0 to 102
             for (int j = 0; j < grid_size; ++j) {
                 double x = -102.0 + j * grid_spacing;
-                double z = 1.0;
+                double y = 0.0;
+                //double z = 1.0
                 grid_x.push_back(x);
                 grid_y.push_back(y);
                 grid_z.push_back(z);
             }
         }
-        
         // Convert particles to GPU format
         std::vector<double> h_x, h_y, h_z, h_q, h_wx, h_wy, h_wz;
         for (const auto& p : particles) {
@@ -704,12 +713,6 @@ int main() {
         CUDAFieldSolver solver(N_Sim, grid_x.size());
         solver.setParticles(h_x, h_y, h_z, h_q, h_wx, h_wy, h_wz);
         
-        // Simulation parameters
-        double dt = 5e-1;
-        double T_end = 38.0;
-        int timesteps = static_cast<int>(T_end / dt);
-        double center_x = -102.0, center_y = 0.0;
-        double velocity_x = 5.38, velocity_y = 0.0;
         
         std::cout << "Starting " << timesteps << " timesteps..." << std::endl;
         
@@ -717,7 +720,7 @@ int main() {
             auto start_time = std::chrono::high_resolution_clock::now();
             
             std::vector<double> output;
-            solver.computeFields(grid_x, grid_y, grid_z, output, center_x, center_y, velocity_x, velocity_y);
+            solver.computeFields(grid_x, grid_y, grid_z, output, centre_x, centre_y, velocity_x, velocity_y);
             
             auto end_time = std::chrono::high_resolution_clock::now();
             
@@ -727,11 +730,11 @@ int main() {
             writeCSV(output, grid_x.size(), filename.str());
             
             // Update particles
-            solver.updateParticles(dt, center_x, center_y, velocity_x, velocity_y);
+            solver.updateParticles(dt, centre_x, centre_y, velocity_x, velocity_y);
             
             // Update dust devil center
-            center_x += velocity_x * dt;
-            center_y += velocity_y * dt;
+            centre_x += velocity_x * dt;
+            centre_y += velocity_y * dt;
             
             // Progress reporting
             if ((t + 1) % 10 == 0 || t == 0) {
