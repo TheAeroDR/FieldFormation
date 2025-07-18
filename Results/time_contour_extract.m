@@ -11,7 +11,7 @@ files = dir(filestring);
 % Sort files by name to ensure correct temporal order
 [~, idx] = sort({files.name});
 files = files(idx);
-
+ 
 for j = 1:length(files)
     data = readtable(fullfile(files(j).folder, files(j).name),'ReadVariableNames',true);
 
@@ -295,3 +295,24 @@ end
 
 B = sqrt(Bx(:,:,39).^2 + By(:,:,39).^2 + Bz(:,:,39).^2);
 E = sqrt(Ex(:,:,39).^2 + Ey(:,:,39).^2 + Ez(:,:,39).^2);
+
+
+%%
+load("farrell_digitisation.mat")
+farrell_m = sortrows(farrell_m)
+farrell_e = sortrows(farrell_e)
+
+t = 0:0.5:37.5;
+figure
+tiledlayout(2,1)
+nexttile(1)
+plot(t-19,squeeze(Bz(511,511,:)),'^-','MarkerSize',5,'MarkerFaceColor',[0.00 0.45 0.74])
+hold on
+plot(farrell_m(:,1)-53031,1e-9*farrell_m(:,2),'s-','MarkerSize',5,'MarkerFaceColor',[0.85,0.33,0.10])
+
+nexttile(2)
+temp =squeeze(Ez(511,511,:));
+temp(temp<-4300) = -4300;
+plot(t-19,temp,'^-','MarkerSize',5,'MarkerFaceColor',[0.00 0.45 0.74])
+hold on
+plot(farrell_e(:,1)-53031,1000*farrell_e(:,2),'s-','MarkerSize',5,'MarkerFaceColor',[0.85,0.33,0.10])
