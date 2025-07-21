@@ -2,3 +2,5 @@
 *.exe
 *.lib
 *.exp
+./Results/Farrell_2ed_CUDA_h1/field_t*.csv
+./Results/Farrell_2ed_CUDA_v0/field_t*.csv
