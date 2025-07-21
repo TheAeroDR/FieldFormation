@@ -1,9 +1,3 @@
-x_all = [];
-y_all = [];
-z_all = [];
-Bz_all = [];
-Ez_all = [];
-
 filestring = sprintf('./Farrell_2ed_CUDA_h1/field_t*.csv');
 
 files = dir(filestring);
@@ -298,21 +292,64 @@ E = sqrt(Ex(:,:,39).^2 + Ey(:,:,39).^2 + Ez(:,:,39).^2);
 
 
 %%
-load("farrell_digitisation.mat")
-farrell_m = sortrows(farrell_m)
-farrell_e = sortrows(farrell_e)
+filestring = sprintf('./Farrell_centre_long/field_t*.csv');
 
-t = 0:0.5:37.5;
+files = dir(filestring);
+
+% Sort files by name to ensure correct temporal order
+[~, idx] = sort({files.name});
+files = files(idx);
+ 
+for j = 1:length(files)
+    data = readtable(fullfile(files(j).folder, files(j).name),'ReadVariableNames',true);
+
+    x_all(:,j) = data.x;
+    y_all(:,j) = data.y;
+    z_all(:,j) = data.z;
+    Ex_all(:,j) = data.Ex;
+    Ey_all(:,j) = data.Ey;
+    Ez_all(:,j) = data.Ez;
+    Bx_all(:,j) = data.Bx;
+    By_all(:,j) = data.By;
+    Bz_all(:,j) = data.Bz;
+end
+%%
+grid_size_x = length(unique(x_all(:,1)));
+grid_size_y = length(unique(y_all(:,1)));
+
+%%
+x_reshaped = reshape(x_all(:,1), grid_size_x, grid_size_y)';
+x_unique = x_reshaped(1,:);
+y_reshaped = reshape(y_all(:,1), grid_size_x, grid_size_y)'; 
+y_unique = y_reshaped(:,1);
+
+
+[X,Y] = meshgrid(x_unique, y_unique);
+for i = 1:size(Bz_all,2)
+    Bx(:,:,i) = reshape(Bx_all(:,i), grid_size_x, grid_size_y)';
+    By(:,:,i) = reshape(By_all(:,i), grid_size_x, grid_size_y)';
+    Bz(:,:,i) = reshape(Bz_all(:,i), grid_size_x, grid_size_y)';
+    Ex(:,:,i) = reshape(Ex_all(:,i), grid_size_x, grid_size_y)';
+    Ey(:,:,i) = reshape(Ey_all(:,i), grid_size_x, grid_size_y)';
+    Ez(:,:,i) = reshape(Ez_all(:,i), grid_size_x, grid_size_y)';
+end
+%%
+load("farrell_digitisation.mat");
+farrell_m = sortrows(farrell_m);
+farrell_e = sortrows(farrell_e);
+
+t = 0:0.05:200-0.05;
+
 figure
 tiledlayout(2,1)
 nexttile(1)
-plot(t-19,squeeze(Bz(511,511,:)),'^-','MarkerSize',5,'MarkerFaceColor',[0.00 0.45 0.74])
+plot(t-100,squeeze(Bz(1,1,:)),'^-','MarkerSize',5,'MarkerFaceColor',[0.00 0.45 0.74])
 hold on
 plot(farrell_m(:,1)-53031,1e-9*farrell_m(:,2),'s-','MarkerSize',5,'MarkerFaceColor',[0.85,0.33,0.10])
 
 nexttile(2)
-temp =squeeze(Ez(511,511,:));
+temp =squeeze(Ez(1,1,:));
 temp(temp<-4300) = -4300;
-plot(t-19,temp,'^-','MarkerSize',5,'MarkerFaceColor',[0.00 0.45 0.74])
+plot(t-100,temp,'^-','MarkerSize',5,'MarkerFaceColor',[0.00 0.45 0.74])
 hold on
 plot(farrell_e(:,1)-53031,1000*farrell_e(:,2),'s-','MarkerSize',5,'MarkerFaceColor',[0.85,0.33,0.10])
