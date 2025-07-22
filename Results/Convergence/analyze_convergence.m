@@ -28,7 +28,8 @@ end
 %% Create IOSR boxplots with tiled layout
 % First, create figures with tiledlayouts for each field component
 field_names = {'Bx', 'By', 'Bz', 'Ex', 'Ey', 'Ez'};
-field_units = {'$B_x$ [T]', '$B_y$ [T]', '$B_z$ [T]', '$E_x$ [V/m]', '$E_y$ [V/m]', '$E_z$ [V/m]'};
+field_units = {'$B_x$ [pT]', '$B_y$ [pT]', '$B_z$ [pT]', '$E_x$ [MV/m]', '$E_y$ [MV/m]', '$E_z$ [MV/m]'};
+particles_10_form = {'$10^3$','$10^4$','$10^5$','$10^6$','$10^7$'};
 
 % Create figures and tiledlayouts first
 fig_handles = [];
@@ -92,12 +93,12 @@ for j = 1:length(particle_counts)
         n_points = height(data_subset);
         if n_points > 0
             % Fill available data points, leave rest as NaN
-            Bx_matrix(1:n_points, t_idx) = data_subset.Bx;
-            By_matrix(1:n_points, t_idx) = data_subset.By;
-            Bz_matrix(1:n_points, t_idx) = data_subset.Bz;
-            Ex_matrix(1:n_points, t_idx) = data_subset.Ex;
-            Ey_matrix(1:n_points, t_idx) = data_subset.Ey;
-            Ez_matrix(1:n_points, t_idx) = data_subset.Ez;
+            Bx_matrix(1:n_points, t_idx) = data_subset.Bx*1e12;
+            By_matrix(1:n_points, t_idx) = data_subset.By*1e12;
+            Bz_matrix(1:n_points, t_idx) = data_subset.Bz*1e12;
+            Ex_matrix(1:n_points, t_idx) = data_subset.Ex*1e-6;
+            Ey_matrix(1:n_points, t_idx) = data_subset.Ey*1e-6;
+            Ez_matrix(1:n_points, t_idx) = data_subset.Ez*1e-6;
         end
     end
     
@@ -125,8 +126,11 @@ for j = 1:length(particle_counts)
             boxplot(field_matrices{i}, unique_times);
         end
 
+        legend(particles_10_form{j})
         if j == 5
             xlabel('Time (s)', 'FontSize', 10);
+            xticks([0,5,10,15,20,25,30,35])
+            xticklabels([0,5,10,15,20,25,30,35])
         elseif j == 3
             ylabel(sprintf('%s',field_units{i}))
             xticklabels([])
