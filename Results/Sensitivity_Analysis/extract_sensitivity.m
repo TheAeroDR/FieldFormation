@@ -102,7 +102,7 @@ grouped(2,:,:) = perc_change(plus_set,:);
 field_names_stringy = {'B_x$', 'B_y$', 'B_z$', 'E_x$', 'E_y$', 'E_z$'};
 
 figure
-tiledlayout(2,3)
+tiledlayout(6,1)
 for i = 1:length(field_names)
     nexttile(i)
     temp = squeeze(grouped(:,:,i));

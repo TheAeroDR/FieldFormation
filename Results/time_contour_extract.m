@@ -1,4 +1,4 @@
-filestring = sprintf('./Farrell_2ed_CUDA_h1/field_t*.csv');
+filestring = sprintf('./Farrell_2ed_CUDA_h1/field_t*.h5');
 
 files = dir(filestring);
 
@@ -6,18 +6,31 @@ files = dir(filestring);
 [~, idx] = sort({files.name});
 files = files(idx);
  
-for j = 1:length(files)
-    data = readtable(fullfile(files(j).folder, files(j).name),'ReadVariableNames',true);
+% for j = 1:length(files)
+%     data = readtable(fullfile(files(j).folder, files(j).name),'ReadVariableNames',true);
+% 
+%     x_all(:,j) = data.x;
+%     y_all(:,j) = data.y;
+%     z_all(:,j) = data.z;
+%     Ex_all(:,j) = data.Ex;
+%     Ey_all(:,j) = data.Ey;
+%     Ez_all(:,j) = data.Ez;
+%     Bx_all(:,j) = data.Bx;
+%     By_all(:,j) = data.By;
+%     Bz_all(:,j) = data.Bz;
+% end
 
-    x_all(:,j) = data.x;
-    y_all(:,j) = data.y;
-    z_all(:,j) = data.z;
-    Ex_all(:,j) = data.Ex;
-    Ey_all(:,j) = data.Ey;
-    Ez_all(:,j) = data.Ez;
-    Bx_all(:,j) = data.Bx;
-    By_all(:,j) = data.By;
-    Bz_all(:,j) = data.Bz;
+for j = 1:length(files)
+
+    x_all(:,j) = h5read(fullfile(files(j).folder,files(j).name),'/x');
+    y_all(:,j) = h5read(fullfile(files(j).folder,files(j).name),'/y');
+    z_all(:,j) = h5read(fullfile(files(j).folder,files(j).name),'/z');
+    Ex_all(:,j) = h5read(fullfile(files(j).folder,files(j).name),'/Ex');
+    Ey_all(:,j) = h5read(fullfile(files(j).folder,files(j).name),'/Ey');
+    Ez_all(:,j) = h5read(fullfile(files(j).folder,files(j).name),'/Ez');
+    Bx_all(:,j) = h5read(fullfile(files(j).folder,files(j).name),'/Bx');
+    By_all(:,j) = h5read(fullfile(files(j).folder,files(j).name),'/By');
+    Bz_all(:,j) = h5read(fullfile(files(j).folder,files(j).name),'/Bz');
 end
 %%
 grid_size_x = length(unique(x_all(:,1)));
@@ -57,7 +70,7 @@ while true
         colormap jet;
         colorbar;
         title(['Bz at frame ', num2str(i)]);
-        xlabel('X'); ylabel('Y'); zlabel('Bz');
+        xlabel('X [m]'); ylabel('Y [m]'); zlabel('Bz');
         axis tight;
         zlim([bz_min, bz_max]);
         xlim([x_centre(i)-10,x_centre(i)+10]);
@@ -108,12 +121,12 @@ for i = 1:length(field_names)
     c.Label.Interpreter = "latex";
     c.TickLabelInterpreter = "latex";
     if i == 4 || i == 5 || i == 6
-        xlabel('X');
+        xlabel('X [m]');
     else
         xlabel('');
     end
     if i == 1 || i == 4
-        ylabel('Y');
+        ylabel('Y [m]');
     else
         ylabel('');
     end
@@ -148,7 +161,7 @@ z_all = [];
 Bz_all = [];
 Ez_all = [];
 
-filestring = sprintf('./Farrell_2ed_CUDA_v0/field_t*.csv');
+filestring = sprintf('./Farrell_2ed_CUDA_v0/field_t*.h5');
 
 files = dir(filestring);
 
@@ -156,18 +169,31 @@ files = dir(filestring);
 [~, idx] = sort({files.name});
 files = files(idx);
 
-for j = 1:length(files)
-    data = readtable(fullfile(files(j).folder, files(j).name),'ReadVariableNames',true);
+% for j = 1:length(files)
+%     data = readtable(fullfile(files(j).folder, files(j).name),'ReadVariableNames',true);
+% 
+%     x_all(:,j) = data.x;
+%     y_all(:,j) = data.y;
+%     z_all(:,j) = data.z;
+%     Ex_all(:,j) = data.Ex;
+%     Ey_all(:,j) = data.Ey;
+%     Ez_all(:,j) = data.Ez;
+%     Bx_all(:,j) = data.Bx;
+%     By_all(:,j) = data.By;
+%     Bz_all(:,j) = data.Bz;
+% end
 
-    x_all(:,j) = data.x;
-    y_all(:,j) = data.y;
-    z_all(:,j) = data.z;
-    Ex_all(:,j) = data.Ex;
-    Ey_all(:,j) = data.Ey;
-    Ez_all(:,j) = data.Ez;
-    Bx_all(:,j) = data.Bx;
-    By_all(:,j) = data.By;
-    Bz_all(:,j) = data.Bz;
+for j = 1:length(files)
+
+    x_all(:,j) = h5read(fullfile(files(j).folder,files(j).name),'/x');
+    y_all(:,j) = h5read(fullfile(files(j).folder,files(j).name),'/y');
+    z_all(:,j) = h5read(fullfile(files(j).folder,files(j).name),'/z');
+    Ex_all(:,j) = h5read(fullfile(files(j).folder,files(j).name),'/Ex');
+    Ey_all(:,j) = h5read(fullfile(files(j).folder,files(j).name),'/Ey');
+    Ez_all(:,j) = h5read(fullfile(files(j).folder,files(j).name),'/Ez');
+    Bx_all(:,j) = h5read(fullfile(files(j).folder,files(j).name),'/Bx');
+    By_all(:,j) = h5read(fullfile(files(j).folder,files(j).name),'/By');
+    Bz_all(:,j) = h5read(fullfile(files(j).folder,files(j).name),'/Bz');
 end
 %%
 grid_size_x = length(unique(x_all(:,1)));
@@ -259,12 +285,12 @@ for i = 1:length(field_names)
     c.Label.Interpreter = "latex";
     c.TickLabelInterpreter = "latex";
     if i == 4 || i == 5 || i == 6
-        xlabel('X');
+        xlabel('X [m]');
     else
         xlabel('');
     end
     if i == 1 || i == 4
-        ylabel('Y');
+        ylabel('Y [m]');
     else
         ylabel('');
     end
@@ -343,13 +369,19 @@ t = 0:0.05:200-0.05;
 figure
 tiledlayout(2,1)
 nexttile(1)
-plot(t-100,squeeze(Bz(1,1,:)),'^-','MarkerSize',5,'MarkerFaceColor',[0.00 0.45 0.74])
+plot(t-100,1e9*squeeze(Bz(1,1,:)),'^-','MarkerSize',5,'MarkerFaceColor',[0.00 0.45 0.74])
 hold on
-plot(farrell_m(:,1)-53031,1e-9*farrell_m(:,2),'s-','MarkerSize',5,'MarkerFaceColor',[0.85,0.33,0.10])
+plot(farrell_m(:,1)-53031,farrell_m(:,2),'s-','MarkerSize',5,'MarkerFaceColor',[0.85,0.33,0.10])
+xlabel('Time [s]')
+ylabel('$B_z$ [nT]')
+xlim([-50,50])
 
 nexttile(2)
 temp =squeeze(Ez(1,1,:));
 temp(temp<-4300) = -4300;
-plot(t-100,temp,'^-','MarkerSize',5,'MarkerFaceColor',[0.00 0.45 0.74])
+plot(t-100,1e-3*temp,'^-','MarkerSize',5,'MarkerFaceColor',[0.00 0.45 0.74])
 hold on
-plot(farrell_e(:,1)-53031,1000*farrell_e(:,2),'s-','MarkerSize',5,'MarkerFaceColor',[0.85,0.33,0.10])
+plot(farrell_e(:,1)-53031,farrell_e(:,2),'s-','MarkerSize',5,'MarkerFaceColor',[0.85,0.33,0.10])
+xlabel('Time [s]')
+ylabel('$E_z$ [kV/m]')
+xlim([-100,100])
