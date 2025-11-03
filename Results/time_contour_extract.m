@@ -385,3 +385,28 @@ plot(farrell_e(:,1)-53031,farrell_e(:,2),'s-','MarkerSize',5,'MarkerFaceColor',[
 xlabel('Time [s]')
 ylabel('$E_z$ [kV/m]')
 xlim([-100,100])
+
+figure
+tiledlayout(3,1);
+nexttile(1)
+plot(t-100,1e9*squeeze(Bx(1,1,:)))
+xlim([-20,20])
+nexttile(2)
+plot(t-100,1e9*squeeze(By(1,1,:)))
+xlim([-20,20])
+nexttile(3)
+plot(t-100,1e9*squeeze(Bz(1,1,:)))
+xlim([-20,20])
+
+
+figure
+tiledlayout(3,1);
+nexttile(1)
+plot(t-100,squeeze(Ex(1,1,:)))
+xlim([-20,20])
+nexttile(2)
+plot(t-100,squeeze(Ey(1,1,:)))
+xlim([-20,20])
+nexttile(3)
+plot(t-100,squeeze(Ez(1,1,:)))
+xlim([-20,20])
