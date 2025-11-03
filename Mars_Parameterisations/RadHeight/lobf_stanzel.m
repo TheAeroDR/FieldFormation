@@ -21,7 +21,7 @@ f1.Children.XScale = 'log';
 f1.Children.YScale = 'log';
 hold on
 
-model = fittype('a*x + b', 'coeff', {'a', 'b'});
+%model = fittype('a*x + b', 'coeff', {'a', 'b'});
 model = fittype('0.5*x + b', 'coeff', {'b'});
 
 opts = fitoptions( 'Method', 'NonlinearLeastSquares' );
