@@ -233,7 +233,7 @@ while true
         colormap jet;
         colorbar;
         title(['Ez at frame ', num2str(i)]);
-        xlabel('X'); ylabel('Y'); zlabel('Ez');
+        xlabel('X'); ylabel('Z'); zlabel('Ez');
         axis tight;
         zlim([ez_min, ez_max]);
         xlim([x_centre(i)-10,x_centre(i)+10]);
@@ -290,7 +290,7 @@ for i = 1:length(field_names)
         xlabel('');
     end
     if i == 1 || i == 4
-        ylabel('Y [m]');
+        ylabel('Z [m]');
     else
         ylabel('');
     end
