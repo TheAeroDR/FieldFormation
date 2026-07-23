@@ -410,3 +410,16 @@ xlim([-20,20])
 nexttile(3)
 plot(t-100,squeeze(Ez(1,1,:)))
 xlim([-20,20])
+
+%%
+x = find(x_unique==0);
+y = find(y_unique==-10);
+
+figure
+tiledlayout(3,1);
+nexttile(1)
+plot(1e9*squeeze(Bx(y,x,:)))
+nexttile(2)
+plot(1e9*squeeze(By(y,x,:)))
+nexttile(3)
+plot(1e9*squeeze(Bz(y,x,:)))
